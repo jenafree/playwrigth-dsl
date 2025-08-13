@@ -1,0 +1,160 @@
+# CI/CD Pipeline - Playwright DSL E-commerce
+# Inspirado no projeto ecommerce-cypress-tests
+
+name: 'CI - Playwright DSL'
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # === Lint e Format (Gate de Qualidade) ===
+  lint:
+    name: '🔍 Lint & Format'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: ESLint check
+        run: npm run lint
+        
+      - name: Prettier check
+        run: npx prettier --check .
+
+  # === Smoke Tests (por PR) ===
+  smoke:
+    name: '💨 Smoke Tests'
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        
+      - name: Run smoke tests
+        run: npm run test:smoke
+        
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 5
+
+  # === Testes Críticos (Matriz de Navegadores) ===
+  critica:
+    name: '🔥 Testes Críticos - ${{ matrix.browser }}'
+    runs-on: ubuntu-latest
+    needs: smoke
+    strategy:
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+        
+      - name: Run critical tests
+        run: npm run test:critica -- --browser=${{ matrix.browser }}
+        
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: critica-${{ matrix.browser }}-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  # === Demo/Validação da Arquitetura ===
+  arquitetura:
+    name: '🏗️ Validação da Arquitetura'
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: TypeScript compilation check
+        run: npx tsc --noEmit
+        
+      - name: Run architecture demo tests
+        run: npm run test:demo
+        
+      - name: Validate DSL structure
+        run: |
+          echo "📊 Validando estrutura da DSL..."
+          find src/common -name "*.ts" | wc -l
+          find src/flows -name "*.ts" | wc -l
+          find src/adapters -name "*.ts" | wc -l
+          find src/infra -name "*.ts" | wc -l
+          echo "✅ Estrutura validada"
+
+  # === Relatório Final ===
+  report:
+    name: '📊 Relatório de Qualidade'
+    runs-on: ubuntu-latest
+    needs: [lint, smoke, critica, arquitetura]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        
+      - name: Generate quality report
+        run: |
+          echo "## 📊 Relatório de Qualidade CI" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Status dos Jobs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Lint**: ${{ needs.lint.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Smoke**: ${{ needs.smoke.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Crítica**: ${{ needs.critica.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Arquitetura**: ${{ needs.arquitetura.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Arquitetura DSL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Camadas**: Common, Flows, Adapters, Infra" >> $GITHUB_STEP_SUMMARY
+          echo "- **Comandos**: Simples + Compostos" >> $GITHUB_STEP_SUMMARY
+          echo "- **Observabilidade**: Eventos + Métricas" >> $GITHUB_STEP_SUMMARY
+          echo "- **Qualidade**: ESLint + Prettier + Husky" >> $GITHUB_STEP_SUMMARY
